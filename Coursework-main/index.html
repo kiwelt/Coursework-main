@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Моделювання Гнучкої Виробничої Системи</title>
+    
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <main>
+        <h1>Моделювання Гнучкої Виробничої Системи</h1>
+
+        <aside class="controls">
+            <h2>Вхідні дані</h2>
+            
+            <div class="input-group">
+                <label for="lambda">λ (Інтенсивність потоку, зав/год)</label>
+                <input type="number" id="lambda" step="0.01" value="1.57">
+            </div>
+            
+            <div class="input-group">
+                <label for="t_sr">tср (Середній час обробки, год)</label>
+                <input type="number" id="t_sr" step="0.01" value="0.157">
+            </div>
+            
+            <div class="input-group">
+                <label for="d">d (Прибуток за деталь, грн)</label>
+                <input type="number" id="d" step="0.01" value="6.57">
+            </div>
+
+            <div class="input-group">
+                <label for="v_v">vв (Витрати на верстат, грн/год)</label>
+                <input type="number" id="v_v" step="0.01" value="4.57">
+            </div>
+
+            <div class="input-group">
+                <label for="v_n">vн (Витрати на накопичувач, грн/год)</label>
+                <input type="number" id="v_n" step="0.01" value="1.57">
+            </div>
+
+            <div class="input-group">
+                <label for="m">m (Ємність накопичувача, k)</label>
+                <input type="number" id="m" step="1" value="20">
+            </div>
+
+            <div class="input-group">
+                <label for="max_n">Моделювати до n верстатів</label>
+                <input type="number" id="max_n" step="1" value="15">
+            </div>
+
+            <h2>Управління сценаріями</h2>
+            <div class="button-group">
+                <button id="btn-scenario-base">Запустити Базовий (λ=1.57)</button>
+                <button id="btn-scenario-a">Запустити Сценарій А (λ=10)</button>
+                <button id="btn-scenario-b">Запустити Сценарій Б (λ=25)</button>
+                <button id="btn-custom">Розрахувати з моїми даними</button>
+            </div>
+        </aside>
+
+        <section class="results">
+            <h2>Результати моделювання</h2>
+            
+            <div id="result-summary">
+                Оберіть сценарій або натисніть "Розрахувати".
+            </div>
+
+            <div id="chart-container">
+                <canvas id="profitChart"></canvas>
+            </div>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>n (Верстати)</th>
+                            <th>P₀</th>
+                            <th>P(відмови)</th>
+                            <th>A (зав/год)</th>
+                            <th>Дохід (грн/год)</th>
+                            <th>Витрати (грн/год)</th>
+                            <th>Прибуток q(n)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="result-table-body">
+                        </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let profitChart;
+
+        function factorial(n) {
+            if (n === 0 || n === 1) {
+                return 1.0;
+            }
+            let result = 1.0;
+            for (let i = 2; i <= n; i++) {
+                result *= i;
+            }
+            return result;
+        }
+
+        function runSimulation() {
+            const lambda = parseFloat(document.getElementById('lambda').value);
+            const t_sr = parseFloat(document.getElementById('t_sr').value);
+            const d = parseFloat(document.getElementById('d').value);
+            const v_v = parseFloat(document.getElementById('v_v').value);
+            const v_n = parseFloat(document.getElementById('v_n').value);
+            const m = parseInt(document.getElementById('m').value);
+            const max_n = parseInt(document.getElementById('max_n').value);
+            const mu = 1.0 / t_sr;
+            const rho = lambda / mu;
+            
+            const tableBody = document.getElementById('result-table-body');
+            tableBody.innerHTML = '';
+            const summary = document.getElementById('result-summary');
+            
+            let max_profit = -Infinity;
+            let optimal_n = 0;
+            let chartData = {
+                labels: [],
+                profits: []
+            };
+            let allRows = [];
+
+            for (let n = 1; n <= max_n; n++) {
+                
+                let sum_k_0_n = 0.0;
+                for (let k = 0; k <= n; k++) {
+                    sum_k_0_n += Math.pow(rho, k) / factorial(k);
+                }
+
+                const n_term = Math.pow(rho, n) / factorial(n);
+                const kappa = rho / n;
+                let geom_sum = 0.0;
+
+                if (Math.abs(kappa - 1.0) < 1e-9) { 
+                    geom_sum = m;
+                } else { 
+                    geom_sum = kappa * (1.0 - Math.pow(kappa, m)) / (1.0 - kappa);
+                }
+
+                const P0 = 1.0 / (sum_k_0_n + n_term * geom_sum);
+                const prob_otkaza = P0 * n_term * Math.pow(kappa, m);
+                const A = lambda * (1.0 - prob_otkaza);
+                const income = d * A;
+                const costs = (v_v * n) + (v_n * m);
+                const profit = income - costs;
+
+                chartData.labels.push(n);
+                chartData.profits.push(profit);
+
+                if (profit > max_profit) {
+                    max_profit = profit;
+                    optimal_n = n;
+                }
+
+                const row = tableBody.insertRow();
+                row.innerHTML = `
+                    <td>${n}</td>
+                    <td>${P0.toFixed(5)}</td>
+                    <td>${prob_otkaza.toFixed(8)}</td>
+                    <td>${A.toFixed(4)}</td>
+                    <td>${income.toFixed(2)}</td>
+                    <td>${costs.toFixed(2)}</td>
+                    <td><b>${profit.toFixed(2)}</b></td>
+                `;
+                allRows.push(row);
+            }
+
+            summary.innerHTML = `Оптимальна кількість верстатів (n): ${optimal_n}. Максимальний прибуток (q): ${max_profit.toFixed(2)} грн/год`;
+
+            if (optimal_n > 0 && optimal_n <= allRows.length) {
+                allRows[optimal_n - 1].classList.add('optimal-row');
+            }
+
+            drawChart(chartData.labels, chartData.profits);
+        }
+
+        function drawChart(labels, data) {
+            const ctx = document.getElementById('profitChart').getContext('2d');
+            
+            if (profitChart) {
+                profitChart.destroy();
+            }
+
+            profitChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Прибуток q(n) (грн/год)',
+                        data: data,
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0,123,255,0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Залежність прибутку ГВС від кількості верстатів'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Прибуток: ${context.parsed.y.toFixed(2)} грн/год`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Кількість верстатів (n)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Прибуток q(n) (грн/год)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function runScenario(lambdaValue) {
+            document.getElementById('lambda').value = lambdaValue;
+            runSimulation();
+        }
+
+        document.getElementById('btn-scenario-base').addEventListener('click', () => runScenario(1.57));
+        document.getElementById('btn-scenario-a').addEventListener('click', () => runScenario(10));
+        document.getElementById('btn-scenario-b').addEventListener('click', () => runScenario(25));
+        document.getElementById('btn-custom').addEventListener('click', runSimulation);
+
+        window.onload = () => runScenario(1.57);
+
+    </script>
+</body>
+</html>
